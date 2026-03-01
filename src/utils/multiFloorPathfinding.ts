@@ -220,10 +220,31 @@ export function findMultiFloorPath(
     }
   }
 
-  // Final touches for start and end segments
+  // Final touches for start and end segments: include room centers for clear entry/exit
   if (segments.length > 0) {
-    // Lead user TO THE DOOR only (hallway waypoint)
-    // We removed startRoomPos and endRoomPos pushes so arrows stay in the corridor
+    // 1. Add start room center to first segment
+    const firstSeg = segments[0];
+    const startFloor = allFloorData.find(f => f.floorId === firstSeg.floorId);
+    const startRoom = startFloor?.rooms.find(r => r.id === startRoomId);
+    if (startRoom && firstSeg.positions.length > 0) {
+      const dist = Math.sqrt(Math.pow(startRoom.center[0]-firstSeg.positions[0][0],2) + Math.pow(startRoom.center[1]-firstSeg.positions[0][1],2));
+      if (dist > 0.1) {
+        firstSeg.positions.unshift([startRoom.center[0], startRoom.center[1]]);
+        firstSeg.waypointIds.unshift(startRoomId);
+      }
+    }
+
+    // 2. Add end room center to last segment
+    const lastSeg = segments[segments.length - 1];
+    const endFloor = allFloorData.find(f => f.floorId === lastSeg.floorId);
+    const endRoom = endFloor?.rooms.find(r => r.id === endRoomId);
+    if (endRoom && lastSeg.positions.length > 0) {
+      const dist = Math.sqrt(Math.pow(endRoom.center[0]-lastSeg.positions[lastSeg.positions.length-1][0],2) + Math.pow(endRoom.center[1]-lastSeg.positions[lastSeg.positions.length-1][1],2));
+      if (dist > 0.1) {
+        lastSeg.positions.push([endRoom.center[0], endRoom.center[1]]);
+        lastSeg.waypointIds.push(endRoomId);
+      }
+    }
   }
 
   return segments;

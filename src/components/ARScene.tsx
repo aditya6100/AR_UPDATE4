@@ -919,15 +919,28 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     // ── Build destination marker (Floating Name Label in front of Door) ─────
     const destinationRoom = floorData.rooms.find(r => r.id === endRoomIdRef.current);
     const destinationName = destinationRoom?.name || "Destination";
-    const lastWpPos = segment.positions[segment.positions.length - 1];
+    
+    // Check if path ends at room center (from updated pathfinder)
+    const hasRoomCenter = segment.waypointIds[segment.waypointIds.length - 1] === endRoomIdRef.current;
+    
+    let lastWpPos: [number, number];
+    let roomCenterPos: [number, number] | null = null;
+
+    if (hasRoomCenter && segment.positions.length >= 2) {
+        lastWpPos = segment.positions[segment.positions.length - 2];
+        roomCenterPos = segment.positions[segment.positions.length - 1];
+    } else {
+        lastWpPos = segment.positions[segment.positions.length - 1];
+        roomCenterPos = destinationRoom?.center || null;
+    }
+
     let markerPos = new THREE.Vector3(lastWpPos[0], 0.01, lastWpPos[1]);
 
-    // Offset marker towards the room center to be "in front of door"
-    if (destinationRoom) {
-      const roomCenter = new THREE.Vector3(destinationRoom.center[0], 0.01, destinationRoom.center[1]);
-      const dirToRoom = new THREE.Vector3().subVectors(roomCenter, markerPos).normalize();
-      // Move 0.5m from hallway waypoint towards room (approx door location)
-      markerPos.add(dirToRoom.multiplyScalar(0.5));
+    if (roomCenterPos) {
+      const roomVec = new THREE.Vector3(roomCenterPos[0], 0.01, roomCenterPos[1]);
+      const dirToRoom = new THREE.Vector3().subVectors(roomVec, markerPos).normalize();
+      // Move 0.55m from hallway waypoint towards room (places marker in the door gap)
+      markerPos.add(dirToRoom.multiplyScalar(0.55));
     }
 
     const destGroup = new THREE.Group();
@@ -977,6 +990,18 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     destinationBeaconRef.current = destGroup;
 
     // ── Build curve ─────────────────────────────────────────────────────────
+    const pathPoints = segment.positions.map(pos => new THREE.Vector3(pos[0], 0.12, pos[1]));
+    
+    if (hasRoomCenter && pathPoints.length >= 2) {
+        // Move the room center point to the door position
+        pathPoints[pathPoints.length - 1].set(markerPos.x, 0.12, markerPos.z);
+    } else if (floorData.floorId === endFloorIdRef.current && destinationRoom) {
+        // Fallback: append door if room center wasn't in path
+        pathPoints.push(new THREE.Vector3(markerPos.x, 0.12, markerPos.z));
+    }
+
+    if (pathPoints.length < 2) return;
+
     const curve = new THREE.CatmullRomCurve3(pathPoints);
     pathCurveRef.current = curve;
 
