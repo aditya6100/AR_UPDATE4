@@ -1043,9 +1043,8 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const lookAt = pt.clone().add(tangent);
       group.lookAt(lookAt);
 
-      // Orient the extruded shape to stand up as a ^
-      chevron.rotateX(-Math.PI / 2); // Lay flat on path first
-      chevron.rotateY(Math.PI);      // Correct direction
+      // Orient the extruded shape to stand up as a ^ pointing forward
+      chevron.rotateX(-Math.PI / 2); // Align shape Y+ with group Z+
       
       group.add(chevron);
       group.userData.baseY = arrowY;
