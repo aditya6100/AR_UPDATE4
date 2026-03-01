@@ -531,9 +531,9 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
             (cone.material as THREE.MeshStandardMaterial).emissiveIntensity = pulse;
             (shaft.material as THREE.MeshStandardMaterial).emissiveIntensity = pulse;
             
-            const scale = 1 + Math.sin(timeArrows * 2 + i) * 0.04;
-            cone.scale.set(scale, scale, scale);
-            shaft.scale.set(scale, scale, scale);
+            // scale pulsing removed for consistent size
+            cone.scale.set(1, 1, 1);
+            shaft.scale.set(1, 1, 1);
           }
         });
 
@@ -990,14 +990,12 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     const isAR = rendererRef.current?.xr.isPresenting ?? false;
 
     // In AR we want real-world scale arrows (~20cm tall)
-    // In 3D view we want proportional arrows relative to the floor plan
-    // The floor plan group in AR is positioned at real scale so 1 unit = 1 metre
-    // We detect AR and use 0.2 (20cm) vs 0.4 (proportional to 52-unit plan)
-    const coneH  = isAR ? 0.20 : 0.40;
-    const coneR  = isAR ? 0.07 : 0.12;
-    const shaftL = isAR ? 0.15 : 0.28;
-    const shaftR = isAR ? 0.025: 0.04;
-    const arrowY = isAR ? 0.91 : 0.12;  // 0.91m = ~3 feet
+    // We use a consistent size for both AR and 3D view for uniformity
+    const coneH  = 0.25;
+    const coneR  = 0.08;
+    const shaftL = 0.20;
+    const shaftR = 0.03;
+    const arrowY = isAR ? 0.30 : 0.12;  // Lowered to 30cm in AR
 
     const isToGround = activeSegment.transition?.toFloor === 'f1';
 
