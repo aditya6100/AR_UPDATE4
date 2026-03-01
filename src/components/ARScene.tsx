@@ -971,8 +971,6 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     destinationBeaconRef.current = destGroup;
 
     // ── Build curve (Truncated at door gap) ─────────────────────────────────
-    const pathPoints = segment.positions.map(pos => new THREE.Vector3(pos[0], 0.12, pos[1]));
-    
     // Extend/Snap the final point to the door gap if on the destination floor
     if (floorData.floorId === endFloorIdRef.current && destinationRoom) {
         pathPoints[pathPoints.length - 1].copy(doorPos).setY(0.12);
