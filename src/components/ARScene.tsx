@@ -913,7 +913,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     startPulseRef.current = startMarker;
 
     // ── Build destination marker (In front of Door Gap) ──────────────────
-    const destinationRoom = floorData.rooms.find(r => r.id === endRoomIdRef.current);
+    const destinationRoom = endRoomId ? floorData.rooms.find(r => r.id === endRoomId) : undefined;
     const destinationName = destinationRoom?.name || "Destination";
     const lastWpPos = segment.positions[segment.positions.length - 1];
     let doorPos = new THREE.Vector3(lastWpPos[0], 0.01, lastWpPos[1]);
@@ -930,7 +930,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     // 1. Floating Text Canvas
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (ctx) {
+    if (ctx && endRoomId) {
       canvas.width = 512;
       canvas.height = 128;
       ctx.fillStyle = 'rgba(15, 15, 25, 0.85)';
@@ -964,7 +964,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     });
     const ring = new THREE.Mesh(torusGeo, torusMat);
     ring.rotation.x = -Math.PI / 2;
-    destGroup.add(ring);
+    if (endRoomId) destGroup.add(ring);
 
     destGroup.position.copy(doorPos);
     floorPlanGroup.add(destGroup);
@@ -972,7 +972,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
     // ── Build curve (Truncated at door gap) ─────────────────────────────────
     // Extend/Snap the final point to the door gap if on the destination floor
-    if (floorData.floorId === endFloorIdRef.current && destinationRoom) {
+    if (endRoomId && destinationRoom) {
         pathPoints[pathPoints.length - 1].copy(doorPos).setY(0.12);
     }
 
