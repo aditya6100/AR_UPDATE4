@@ -55,6 +55,15 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
   const [totalDistanceRemaining, setTotalDistanceRemaining] = useState<number | null>(null);
   const [nextInstruction, setNextInstruction] = useState<string>('');
   const [hasArrived, setHasArrived] = useState(false);
+  const [arrowHeight, setArrowHeight] = useState(0.3); // 👈 Height adjuster state
+
+  // Update existing arrows when height changes
+  useEffect(() => {
+    spheresRef.current.forEach(arrow => {
+      arrow.group.position.y = arrowHeight;
+      arrow.group.userData.baseY = arrowHeight;
+    });
+  }, [arrowHeight]);
 
 
 
@@ -983,13 +992,13 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     // Reverse V (Chevron) size
     const armL = 0.25;
     const armR = 0.025;
-    const arrowY = isAR ? 0.30 : 0.12; 
+    const currentHeight = isAR ? arrowHeight : 0.12; 
 
     const isToGround = activeSegment.transition?.toFloor === 'f1';
 
     for (let idx = 0; idx < curvePoints.length; idx += ARROW_SPACING) {
       const pt      = curvePoints[idx].clone();
-      pt.y          = arrowY;
+      pt.y          = currentHeight;
       const t       = idx / (curvePoints.length - 1);
       const tangent = curve.getTangent(t).normalize();
 
@@ -1021,7 +1030,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       rightArm.position.x = 0.08;
 
       group.add(leftArm, rightArm);
-      group.userData.baseY = arrowY;
+      group.userData.baseY = currentHeight;
       
       // Ground label logic
       if (isToGround && idx > curvePoints.length - 60) {
@@ -1116,16 +1125,36 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       )}
 
       {showUIView && (
-        <button
-            onClick={() => {
-                console.log("Button clicked!");
-                setIsFarView(!isFarView)
-            }}
-            className="fixed top-20 left-6 z-20 bg-white/95 p-3 rounded-full shadow-lg text-slate-800 hover:bg-slate-100 transition-colors"
-            aria-label="Toggle Far View"
-        >
-            {isFarView ? 'Default View' : 'Far View'}
-        </button>
+        <>
+          <button
+              onClick={() => {
+                  console.log("Button clicked!");
+                  setIsFarView(!isFarView)
+              }}
+              className="fixed top-20 left-6 z-20 bg-white/95 p-3 rounded-full shadow-lg text-slate-800 hover:bg-slate-100 transition-colors"
+              aria-label="Toggle Far View"
+          >
+              {isFarView ? 'Default View' : 'Far View'}
+          </button>
+
+          {/* Height Adjuster Component */}
+          <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col items-center gap-3 bg-slate-900/80 backdrop-blur-md p-4 rounded-3xl border border-white/10 shadow-2xl">
+            <span className="text-[10px] font-bold text-white uppercase tracking-widest vertical-text mb-2">Height</span>
+            <div className="relative h-48 w-8 flex items-center justify-center">
+              <input 
+                type="range" 
+                min="0.05" 
+                max="2.0" 
+                step="0.05" 
+                value={arrowHeight}
+                onChange={(e) => setArrowHeight(parseFloat(e.target.value))}
+                className="h-40 w-1 accent-purple-500 appearance-none bg-slate-700 rounded-lg cursor-pointer outline-none"
+                style={{ WebkitAppearance: 'slider-vertical' } as any}
+              />
+            </div>
+            <span className="text-xs font-black text-purple-400 mt-2">{arrowHeight.toFixed(2)}m</span>
+          </div>
+        </>
       )}
     </>
   );
