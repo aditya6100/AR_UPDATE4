@@ -9,7 +9,7 @@ import type { PathSegment } from '../utils/multiFloorPathfinding';
 
 interface ArrowElement {
   group: THREE.Group;
-  geo: THREE.CylinderGeometry;
+  geo: THREE.ExtrudeGeometry;
   mat: THREE.MeshStandardMaterial;
 }
 
@@ -916,10 +916,19 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     floorPlanGroup.add(startMarker);
     startPulseRef.current = startMarker;
 
-    // ── Build destination marker (Floating Name Label) ──────────────────────
-    const endPos = pathPoints[pathPoints.length - 1];
+    // ── Build destination marker (Floating Name Label in front of Door) ─────
     const destinationRoom = floorData.rooms.find(r => r.id === endRoomIdRef.current);
     const destinationName = destinationRoom?.name || "Destination";
+    const lastWpPos = segment.positions[segment.positions.length - 1];
+    let markerPos = new THREE.Vector3(lastWpPos[0], 0.01, lastWpPos[1]);
+
+    // Offset marker towards the room center to be "in front of door"
+    if (destinationRoom) {
+      const roomCenter = new THREE.Vector3(destinationRoom.center[0], 0.01, destinationRoom.center[1]);
+      const dirToRoom = new THREE.Vector3().subVectors(roomCenter, markerPos).normalize();
+      // Move 0.5m from hallway waypoint towards room (approx door location)
+      markerPos.add(dirToRoom.multiplyScalar(0.5));
+    }
 
     const destGroup = new THREE.Group();
     
@@ -963,7 +972,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     ring.rotation.x = -Math.PI / 2;
     destGroup.add(ring);
 
-    destGroup.position.copy(endPos).setY(0.01);
+    destGroup.position.copy(markerPos);
     floorPlanGroup.add(destGroup);
     destinationBeaconRef.current = destGroup;
 
@@ -990,10 +999,20 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     const ARROW_SPACING = 20; 
     const isAR = rendererRef.current?.xr.isPresenting ?? false;
 
-    // Reverse V (Chevron) size
-    const armL = 0.25;
-    const armR = 0.025;
-    const currentHeight = isAR ? arrowHeight : 0.12; 
+    // Chevron (Reverse V) Shape
+    const chevronShape = new THREE.Shape();
+    chevronShape.moveTo(-0.15, -0.10);
+    chevronShape.lineTo(0, 0.08);
+    chevronShape.lineTo(0.15, -0.10);
+    chevronShape.lineTo(0.15, -0.02);
+    chevronShape.lineTo(0, 0.16);
+    chevronShape.lineTo(-0.15, -0.02);
+    chevronShape.closePath();
+
+    const extrudeSettings = { depth: 0.04, bevelEnabled: false };
+    const chevronGeo = new THREE.ExtrudeGeometry(chevronShape, extrudeSettings);
+
+    const arrowY = isAR ? arrowHeight : 0.12; 
 
     // Multi-color palette for arrows
     const COLORS = [0xa78bfa, 0x3b82f6, 0x06b6d4, 0x10b981, 0xfacc15, 0xf97316, 0xef4444];
@@ -1002,13 +1021,12 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
     for (let idx = 0; idx < curvePoints.length; idx += ARROW_SPACING) {
       const pt      = curvePoints[idx].clone();
-      pt.y          = currentHeight;
+      pt.y          = arrowY;
       const t       = idx / (curvePoints.length - 1);
       const tangent = curve.getTangent(t).normalize();
 
       const color = isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : COLORS[(idx / ARROW_SPACING) % COLORS.length];
 
-      const geo = new THREE.CylinderGeometry(armR, armR, armL, 12);
       const mat = new THREE.MeshStandardMaterial({
         color: color,
         emissive: color,
@@ -1017,29 +1035,20 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
         opacity: 0,
       });
 
-      const leftArm = new THREE.Mesh(geo, mat);
-      const rightArm = new THREE.Mesh(geo, mat);
-
-      // Positioning chevrons
+      const chevron = new THREE.Mesh(chevronGeo, mat);
+      
       const group = new THREE.Group();
       group.position.copy(pt);
       
-      // Calculate rotation to face tangent
       const lookAt = pt.clone().add(tangent);
       group.lookAt(lookAt);
 
-      // Angle arms to form a vertical "reverse V" (^) pointing forward
-      // We rotate them in the XY plane (vertical)
-      leftArm.rotation.z = -Math.PI / 4; // Tilt left
-      leftArm.position.x = -0.08;
-      leftArm.position.y = -0.05; // Lower the base of the arm
+      // Orient the extruded shape to stand up as a ^
+      chevron.rotateX(-Math.PI / 2); // Lay flat on path first
+      chevron.rotateY(Math.PI);      // Correct direction
       
-      rightArm.rotation.z = Math.PI / 4; // Tilt right
-      rightArm.position.x = 0.08;
-      rightArm.position.y = -0.05; // Lower the base of the arm
-
-      group.add(leftArm, rightArm);
-      group.userData.baseY = currentHeight;
+      group.add(chevron);
+      group.userData.baseY = arrowY;
       
       // Ground label logic
       if (isToGround && idx > curvePoints.length - 60) {
@@ -1060,7 +1069,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       }
 
       floorPlanGroup.add(group);
-      spheresRef.current.push({ group, geo, mat });
+      spheresRef.current.push({ group, geo: chevronGeo, mat });
     }
   };
 
