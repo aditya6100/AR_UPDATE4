@@ -38,6 +38,7 @@ export default function ARScene({
   const startPulseRef = useRef<THREE.Mesh | null>(null);
   const destinationBeaconRef = useRef<THREE.Group | null>(null);
   const lineRef = useRef<THREE.Line | null>(null);
+  const arButtonRef = useRef<HTMLElement | null>(null);
   const wallGroupRef = useRef<THREE.Group | null>(null);
   const floorRef = useRef<THREE.Mesh | null>(null);
   const labelsGroupRef = useRef<THREE.Group | null>(null);
@@ -77,6 +78,13 @@ export default function ARScene({
     });
   }, [arrowHeight]);
 
+  // Toggle AR button visibility based on props
+  useEffect(() => {
+    if (arButtonRef.current) {
+      arButtonRef.current.style.display = showARButton ? 'block' : 'none';
+    }
+  }, [showARButton]);
+
   const tryCalibrate = () => {
     if (floorPlanGroupRef.current && cameraRef.current) {
       const group = floorPlanGroupRef.current;
@@ -100,57 +108,15 @@ export default function ARScene({
     }
   }, [isFarView]);
 
-  // Handle floor rebuild
   const rebuildScene = () => {
     if (!floorPlanGroupRef.current) return;
     const group = floorPlanGroupRef.current;
     
-    // Clear old elements
-    if (wallGroupRef.current) {
-      group.remove(wallGroupRef.current);
-      wallGroupRef.current.traverse(child => {
-        if ((child as THREE.Mesh).isMesh) {
-          (child as THREE.Mesh).geometry.dispose();
-          const m = (child as THREE.Mesh).material;
-          if (Array.isArray(m)) m.forEach(x => (x as THREE.Material).dispose()); else (m as THREE.Material).dispose();
-        }
-      });
-      wallGroupRef.current = null;
-    }
-    if (labelsGroupRef.current) {
-      group.remove(labelsGroupRef.current);
-      labelsGroupRef.current.traverse(child => {
-        if ((child as THREE.Mesh).isMesh) {
-          (child as THREE.Mesh).geometry.dispose();
-          const m = (child as THREE.Mesh).material;
-          if (Array.isArray(m)) m.forEach(x => (x as THREE.Material).dispose()); else (m as THREE.Material).dispose();
-        }
-      });
-      labelsGroupRef.current = null;
-    }
-    if (floorMessagesGroupRef.current) {
-      group.remove(floorMessagesGroupRef.current);
-      floorMessagesGroupRef.current.traverse(child => {
-        if ((child as THREE.Mesh).isMesh) {
-          (child as THREE.Mesh).geometry.dispose();
-          const m = (child as THREE.Mesh).material;
-          if (Array.isArray(m)) m.forEach(x => (x as THREE.Material).dispose()); else (m as THREE.Material).dispose();
-        }
-      });
-      floorMessagesGroupRef.current = null;
-    }
-    if (floorRef.current) {
-      group.remove(floorRef.current);
-      floorRef.current.geometry.dispose();
-      if (floorRef.current.material) (floorRef.current.material as THREE.Material).dispose();
-      floorRef.current = null;
-    }
-    if (corridorMeshRef.current) {
-      group.remove(corridorMeshRef.current);
-      corridorMeshRef.current.geometry.dispose();
-      if (corridorMeshRef.current.material) (corridorMeshRef.current.material as THREE.Material).dispose();
-      corridorMeshRef.current = null;
-    }
+    if (wallGroupRef.current) group.remove(wallGroupRef.current);
+    if (labelsGroupRef.current) group.remove(labelsGroupRef.current);
+    if (floorMessagesGroupRef.current) group.remove(floorMessagesGroupRef.current);
+    if (floorRef.current) group.remove(floorRef.current);
+    if (corridorMeshRef.current) group.remove(corridorMeshRef.current);
     
     if (spheresRef.current.length > 0) {
       spheresRef.current[0].geo.dispose();
@@ -188,25 +154,31 @@ export default function ARScene({
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dl = new THREE.DirectionalLight(0xffffff, 1); dl.position.set(10, 20, 10); scene.add(dl);
 
-    // Initial build
-    rebuildScene();
-
     const setupARButton = async () => {
-      const sessionInit: any = { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'dom-overlay-for-handheld-ar', 'image-tracking'], domOverlay: { root: document.body } };
+      const sessionInit: any = { 
+        requiredFeatures: ['hit-test'], 
+        optionalFeatures: ['dom-overlay', 'dom-overlay-for-handheld-ar', 'image-tracking'], 
+        domOverlay: { root: document.body } 
+      };
       const trackedImages: any[] = [];
       const baseUrl = window.location.href.split('?')[0].split('#')[0];
       const getAbsUrl = (path: string) => baseUrl.endsWith('/') ? baseUrl + path : baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1) + path;
       for (const floor of floors) { if (floor.marker) { try { const img = new Image(); img.src = getAbsUrl(floor.marker.image); await img.decode(); const bitmap = await createImageBitmap(img); trackedImages.push({ image: bitmap, widthInMeters: 0.2 }); } catch (e) {} } }
       if (trackedImages.length > 0) sessionInit.trackedImages = trackedImages;
+      
       const arButton = ARButton.createButton(renderer, sessionInit); 
-      arButton.style.zIndex = '100'; 
+      arButton.style.zIndex = '1000'; 
       arButtonRef.current = arButton; 
-      container.appendChild(arButton);
+      document.body.appendChild(arButton);
+      
+      // Initial visibility sync
+      arButton.style.display = showARButton ? 'block' : 'none';
     };
     setupARButton();
 
     renderer.xr.addEventListener('sessionstart', () => {
       if (onSessionStateChange) onSessionStateChange(true);
+      if (arButtonRef.current) arButtonRef.current.style.display = 'none';
       setIsScanning(true); setIsCalibrated(false);
       const group = floorPlanGroupRef.current; if (!group) return;
       group.scale.set(1, 1, 1);
@@ -228,6 +200,7 @@ export default function ARScene({
 
     renderer.xr.addEventListener('sessionend', () => {
       if (onSessionStateChange) onSessionStateChange(false);
+      if (arButtonRef.current) arButtonRef.current.style.display = 'block';
       const group = floorPlanGroupRef.current; if (!group) return;
       group.scale.set(1, 1, 1); group.position.set(0, 0, 0); group.rotation.set(0, 0, 0);
       if (floorRef.current) floorRef.current.visible = true;
@@ -330,6 +303,9 @@ export default function ARScene({
     return () => {
       renderer.setAnimationLoop(null); renderer.dispose(); controls.dispose();
       if (container && renderer.domElement) container.removeChild(renderer.domElement);
+      if (arButtonRef.current && arButtonRef.current.parentNode) {
+        arButtonRef.current.parentNode.removeChild(arButtonRef.current);
+      }
     };
   }, []);
 
