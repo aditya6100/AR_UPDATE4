@@ -38,11 +38,11 @@ export default function ARScene({
   const startPulseRef = useRef<THREE.Mesh | null>(null);
   const destinationBeaconRef = useRef<THREE.Group | null>(null);
   const lineRef = useRef<THREE.Line | null>(null);
-  const arButtonRef = useRef<HTMLElement | null>(null);
   const wallGroupRef = useRef<THREE.Group | null>(null);
   const floorRef = useRef<THREE.Mesh | null>(null);
   const labelsGroupRef = useRef<THREE.Group | null>(null);
   const floorMessagesGroupRef = useRef<THREE.Group | null>(null);
+  const corridorMeshRef = useRef<THREE.Mesh | null>(null);
   
   const endRoomIdRef = useRef(endRoomId);
   const activeSegmentRef = useRef(activeSegment);
@@ -61,6 +61,7 @@ export default function ARScene({
   const [hasArrived, setHasArrived] = useState(false);
   const [arrowHeight, setArrowHeight] = useState(0.3);
 
+  // Sync refs
   useEffect(() => { activeSegmentRef.current = activeSegment; }, [activeSegment]);
   useEffect(() => { pathSegmentsRef.current = pathSegments; }, [pathSegments]);
   useEffect(() => { isCalibratedRef.current = isCalibrated; }, [isCalibrated]);
@@ -99,15 +100,57 @@ export default function ARScene({
     }
   }, [isFarView]);
 
-  useEffect(() => {
+  // Handle floor rebuild
+  const rebuildScene = () => {
     if (!floorPlanGroupRef.current) return;
     const group = floorPlanGroupRef.current;
     
     // Clear old elements
-    if (wallGroupRef.current) group.remove(wallGroupRef.current);
-    if (labelsGroupRef.current) group.remove(labelsGroupRef.current);
-    if (floorMessagesGroupRef.current) group.remove(floorMessagesGroupRef.current);
-    if (floorRef.current) group.remove(floorRef.current);
+    if (wallGroupRef.current) {
+      group.remove(wallGroupRef.current);
+      wallGroupRef.current.traverse(child => {
+        if ((child as THREE.Mesh).isMesh) {
+          (child as THREE.Mesh).geometry.dispose();
+          const m = (child as THREE.Mesh).material;
+          if (Array.isArray(m)) m.forEach(x => (x as THREE.Material).dispose()); else (m as THREE.Material).dispose();
+        }
+      });
+      wallGroupRef.current = null;
+    }
+    if (labelsGroupRef.current) {
+      group.remove(labelsGroupRef.current);
+      labelsGroupRef.current.traverse(child => {
+        if ((child as THREE.Mesh).isMesh) {
+          (child as THREE.Mesh).geometry.dispose();
+          const m = (child as THREE.Mesh).material;
+          if (Array.isArray(m)) m.forEach(x => (x as THREE.Material).dispose()); else (m as THREE.Material).dispose();
+        }
+      });
+      labelsGroupRef.current = null;
+    }
+    if (floorMessagesGroupRef.current) {
+      group.remove(floorMessagesGroupRef.current);
+      floorMessagesGroupRef.current.traverse(child => {
+        if ((child as THREE.Mesh).isMesh) {
+          (child as THREE.Mesh).geometry.dispose();
+          const m = (child as THREE.Mesh).material;
+          if (Array.isArray(m)) m.forEach(x => (x as THREE.Material).dispose()); else (m as THREE.Material).dispose();
+        }
+      });
+      floorMessagesGroupRef.current = null;
+    }
+    if (floorRef.current) {
+      group.remove(floorRef.current);
+      floorRef.current.geometry.dispose();
+      if (floorRef.current.material) (floorRef.current.material as THREE.Material).dispose();
+      floorRef.current = null;
+    }
+    if (corridorMeshRef.current) {
+      group.remove(corridorMeshRef.current);
+      corridorMeshRef.current.geometry.dispose();
+      if (corridorMeshRef.current.material) (corridorMeshRef.current.material as THREE.Material).dispose();
+      corridorMeshRef.current = null;
+    }
     
     if (spheresRef.current.length > 0) {
       spheresRef.current[0].geo.dispose();
@@ -118,14 +161,18 @@ export default function ARScene({
     const { wallGroup } = createWalls(floorData);
     group.add(wallGroup); wallGroupRef.current = wallGroup;
 
-    const labelsGroup = new THREE.Group(); labelsGroupRef.current = labelsGroup; group.add(labelsGroup);
-    drawRoomLabels(labelsGroup);
+    const lGroup = new THREE.Group(); labelsGroupRef.current = lGroup; group.add(lGroup);
+    drawRoomLabels(lGroup);
 
-    const msgsGroup = new THREE.Group(); floorMessagesGroupRef.current = msgsGroup; group.add(msgsGroup);
-    drawFloorMessages(msgsGroup);
+    const mGroup = new THREE.Group(); floorMessagesGroupRef.current = mGroup; group.add(mGroup);
+    drawFloorMessages(mGroup);
 
     drawFloor(group, wallGroup);
     if (activeSegment) drawPath(activeSegment, group);
+  };
+
+  useEffect(() => {
+    rebuildScene();
   }, [floorData, activeSegment]);
 
   useEffect(() => {
@@ -140,6 +187,9 @@ export default function ARScene({
     const controls = new OrbitControls(camera, renderer.domElement); controlsRef.current = controls;
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dl = new THREE.DirectionalLight(0xffffff, 1); dl.position.set(10, 20, 10); scene.add(dl);
+
+    // Initial build
+    rebuildScene();
 
     const setupARButton = async () => {
       const sessionInit: any = { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'dom-overlay-for-handheld-ar', 'image-tracking'], domOverlay: { root: document.body } };
@@ -169,6 +219,7 @@ export default function ARScene({
       if (wallGroupRef.current) wallGroupRef.current.visible = false;
       if (labelsGroupRef.current) labelsGroupRef.current.visible = false;
       if (floorMessagesGroupRef.current) floorMessagesGroupRef.current.visible = false;
+      if (corridorMeshRef.current) corridorMeshRef.current.visible = false;
       if (curSeg && floorPlanGroupRef.current) drawPath(curSeg, floorPlanGroupRef.current);
     });
 
@@ -180,6 +231,7 @@ export default function ARScene({
       if (wallGroupRef.current) wallGroupRef.current.visible = true;
       if (labelsGroupRef.current) labelsGroupRef.current.visible = true;
       if (floorMessagesGroupRef.current) floorMessagesGroupRef.current.visible = true;
+      if (corridorMeshRef.current) corridorMeshRef.current.visible = true;
       const curSeg = activeSegmentRef.current; if (curSeg && group) drawPath(curSeg, group);
     });
 
@@ -250,9 +302,7 @@ export default function ARScene({
       const uPos = new THREE.Vector3(); camera.getWorldPosition(uPos);
       spheresRef.current.forEach((entry, i) => {
         const { group, mat } = entry; const aPos = new THREE.Vector3(); group.getWorldPosition(aPos);
-        const d = uPos.distanceTo(aPos); 
-        const isNear = d < 15; // Increased range to 15m
-        group.visible = isNear;
+        const d = uPos.distanceTo(aPos); const isNear = d < 15; group.visible = isNear;
         if (isNear) {
           mat.opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0, (d-10)/5), 0, 1);
           group.scale.setScalar(THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0.1, (d-10)/5), 0.1, 1));
@@ -264,7 +314,7 @@ export default function ARScene({
       if (startPulseRef.current) {
         startPulseRef.current.rotation.y += 0.02;
         startPulseRef.current.position.y = 0.6 + Math.sin(time*3)*0.05;
-        (startPulseRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity = 2 + Math.sin(time*4)*1;
+        (startPulseRef.current.material as any).emissiveIntensity = 2 + Math.sin(time*4);
       }
       if (destinationBeaconRef.current) {
         const label = destinationBeaconRef.current.children.find(c => c.userData.isDestinationLabel);
@@ -289,6 +339,20 @@ export default function ARScene({
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2; floor.position.set(center.x, 0, center.z);
     group.add(floor); floorRef.current = floor;
+
+    if (floorData.corridorPolygon && floorData.corridorPolygon.length > 0) {
+      const shape = new THREE.Shape();
+      const [sx, sz] = floorData.corridorPolygon[0];
+      shape.moveTo(sx, sz);
+      floorData.corridorPolygon.slice(1).forEach(([px, pz]) => shape.lineTo(px, pz));
+      shape.closePath();
+      const cGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: false });
+      const cMat = new THREE.MeshStandardMaterial({ color: floorData.corridorColor || 0x2ecc40, transparent: true, opacity: 0.8 });
+      const cMesh = new THREE.Mesh(cGeo, cMat);
+      cMesh.rotation.x = -Math.PI / 2; cMesh.position.y = 0.01;
+      group.add(cMesh); corridorMeshRef.current = cMesh;
+    }
+
     if (cameraRef.current && controlsRef.current) {
       cameraRef.current.position.set(center.x, isFarView ? 70 : 38, center.z + 0.1);
       controlsRef.current.target.copy(center); controlsRef.current.update();
@@ -304,8 +368,7 @@ export default function ARScene({
       ctx.strokeStyle = '#c792ea'; ctx.lineWidth = 10; ctx.strokeRect(0,0,512,512);
       ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = 'white';
       ctx.fillText(room.name, 256, 256);
-      const tex = new THREE.CanvasTexture(canvas);
-      const label = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
+      const label = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, side: THREE.DoubleSide }));
       label.position.set(room.center[0], 0.05, room.center[1]); label.rotation.x = -Math.PI/2;
       group.add(label);
     });
