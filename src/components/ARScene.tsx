@@ -539,19 +539,36 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
         // 7. ANIMATE START/DEST
         if (startPulseRef.current) {
-          const s = 1 + Math.sin(timeArrows * 4) * 0.2;
+          const s = 1 + Math.sin(timeArrows * 4) * 0.1;
           startPulseRef.current.scale.set(s, s, s);
-          (startPulseRef.current.material as THREE.MeshStandardMaterial).opacity = 0.5 + Math.sin(timeArrows * 4) * 0.5;
+          startPulseRef.current.rotation.y += 0.02;
+          startPulseRef.current.rotation.z += 0.01;
+          const floatOffset = Math.sin(timeArrows * 3) * 0.05;
+          startPulseRef.current.position.y = 0.6 + floatOffset;
         }
         if (destinationBeaconRef.current) {
-          const circle = destinationBeaconRef.current.children[0];
-          if (circle) {
+          const ring = destinationBeaconRef.current.children.find(c => c instanceof THREE.Mesh && c.geometry instanceof THREE.TorusGeometry);
+          if (ring) {
             const pulse = 1 + Math.sin(timeArrows * 4) * 0.15;
-            circle.scale.set(pulse, pulse, pulse);
+            ring.scale.set(pulse, pulse, pulse);
+          }
+          const label = destinationBeaconRef.current.children.find(c => c.userData.isDestinationLabel);
+          if (label) {
+            label.lookAt(camera.position);
+            const floatLabel = Math.sin(timeArrows * 2.5) * 0.1;
+            label.position.y = 1.2 + floatLabel;
           }
         }
 
-        // 8. FINAL RENDER
+        // 8. ANIMATE GROUND FLOOR LABELS
+        spheresRef.current.forEach((entry) => {
+          const label = entry.cone.children.find(c => c.userData.isFloorLabel);
+          if (label) {
+            label.lookAt(camera.position);
+          }
+        });
+
+        // 9. FINAL RENDER
         renderer.render(scene, camera);
     };
 
@@ -883,33 +900,71 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
     if (pathPoints.length < 2) return;
 
-    // ── Build start pulse ring ──────────────────────────────────────────────
-    const startRingGeo = new THREE.TorusGeometry(0.8, 0.05, 12, 32);
-    const startRingMat = new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 5 });
-    const startRing = new THREE.Mesh(startRingGeo, startRingMat);
-    startRing.rotation.x = -Math.PI / 2;
-    startRing.position.copy(pathPoints[0]).setY(0.01);
-    floorPlanGroup.add(startRing);
-    startPulseRef.current = startRing;
+    // ── Build start marker (Attractive floating diamond) ──────────────────
+    const startGeo = new THREE.OctahedronGeometry(0.25, 0);
+    const startMat = new THREE.MeshStandardMaterial({ 
+      color: 0x10b981, 
+      emissive: 0x10b981, 
+      emissiveIntensity: 2,
+      transparent: true,
+      opacity: 0.8,
+      flatShading: true
+    });
+    const startMarker = new THREE.Mesh(startGeo, startMat);
+    startMarker.position.copy(pathPoints[0]).setY(0.6); // Float at waist height
+    floorPlanGroup.add(startMarker);
+    startPulseRef.current = startMarker;
 
-    // ── Build destination circle ────────────────────────────────────────────
+    // ── Build destination marker (Floating Name Label) ──────────────────────
     const endPos = pathPoints[pathPoints.length - 1];
-    const beaconGroup = new THREE.Group();
+    const destinationRoom = floorData.rooms.find(r => r.id === endRoomIdRef.current);
+    const destinationName = destinationRoom?.name || "Destination";
+
+    const destGroup = new THREE.Group();
     
-    // Glowing yellow ring on ground
-    const torusGeo = new THREE.TorusGeometry(0.6, 0.08, 16, 48);
+    // 1. Floating Text Canvas
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      canvas.width = 512;
+      canvas.height = 128;
+      ctx.fillStyle = 'rgba(15, 15, 25, 0.85)';
+      ctx.roundRect(0, 0, canvas.width, canvas.height, 20);
+      ctx.fill();
+      ctx.strokeStyle = '#facc15'; // Yellow border
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.font = 'bold 60px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#facc15';
+      ctx.shadowBlur = 15;
+      ctx.fillText(destinationName, canvas.width / 2, canvas.height / 2);
+      
+      const textTex = new THREE.CanvasTexture(canvas);
+      const textMat = new THREE.MeshBasicMaterial({ map: textTex, transparent: true, side: THREE.DoubleSide });
+      const textPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), textMat);
+      textPlane.position.y = 1.2; // Float high
+      destGroup.add(textPlane);
+      // Make text face user (handled in animate loop if needed, or static)
+      textPlane.userData.isDestinationLabel = true;
+    }
+
+    // 2. Ground indicator (Pulsing ring)
+    const torusGeo = new THREE.TorusGeometry(0.6, 0.05, 16, 48);
     const torusMat = new THREE.MeshStandardMaterial({ 
-      color: 0xffff00, // Yellow
-      emissive: 0xffff00, 
-      emissiveIntensity: 5 
+      color: 0xfacc15, 
+      emissive: 0xfacc15, 
+      emissiveIntensity: 3 
     });
     const ring = new THREE.Mesh(torusGeo, torusMat);
     ring.rotation.x = -Math.PI / 2;
-    beaconGroup.add(ring);
+    destGroup.add(ring);
 
-    beaconGroup.position.copy(endPos).setY(0.01);
-    floorPlanGroup.add(beaconGroup);
-    destinationBeaconRef.current = beaconGroup;
+    destGroup.position.copy(endPos).setY(0.01);
+    floorPlanGroup.add(destGroup);
+    destinationBeaconRef.current = destGroup;
 
     // ── Build curve ─────────────────────────────────────────────────────────
     const curve = new THREE.CatmullRomCurve3(pathPoints);
@@ -944,6 +999,8 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     const shaftR = isAR ? 0.025: 0.04;
     const arrowY = isAR ? 0.91 : 0.12;  // 0.91m = ~3 feet
 
+    const isToGround = activeSegment.transition?.toFloor === 'f1';
+
     for (let idx = 0; idx < curvePoints.length; idx += ARROW_SPACING) {
       const pt      = curvePoints[idx].clone();
       pt.y          = arrowY;
@@ -953,8 +1010,8 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       // ── CONE ARROW (Back to traditional arrows) ───────────────────────────
       const coneGeo = new THREE.ConeGeometry(coneR, coneH, 16);
       const coneMat = new THREE.MeshStandardMaterial({
-        color: 0x00f2ff,
-        emissive: 0x00f2ff,
+        color: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff, // Yellow if leads to GF
+        emissive: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
         emissiveIntensity: 3.0,
         roughness: 0.2,
         metalness: 0.3,
@@ -968,11 +1025,29 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       cone.rotateX(Math.PI / 2); // Point forward
       cone.userData.baseY = cone.position.y;
 
+      // Add "Ground Floor" label if this arrow is near the transition
+      if (isToGround && idx > curvePoints.length - 60) {
+        const canv = document.createElement('canvas');
+        const c = canv.getContext('2d');
+        if (c) {
+          canv.width = 256; canv.height = 64;
+          c.fillStyle = 'rgba(15,15,25,0.8)'; c.roundRect(0,0,256,64,10); c.fill();
+          c.font = 'bold 32px Arial'; c.textAlign='center'; c.textBaseline='middle';
+          c.fillStyle='#ffffff'; c.fillText("Ground Floor", 128, 32);
+          const tTex = new THREE.CanvasTexture(canv);
+          const tMat = new THREE.MeshBasicMaterial({ map: tTex, transparent: true });
+          const tPlane = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), tMat);
+          tPlane.position.y = 0.6;
+          tPlane.userData.isFloorLabel = true;
+          cone.add(tPlane);
+        }
+      }
+
       // ── Shaft ────────────────────────────────────────────────────────────
       const shaftGeo = new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12);
       const shaftMat = new THREE.MeshStandardMaterial({
-        color: 0x00f2ff,
-        emissive: 0x00f2ff,
+        color: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
+        emissive: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
         emissiveIntensity: 2.5,
         transparent: true,
         opacity: 0,
