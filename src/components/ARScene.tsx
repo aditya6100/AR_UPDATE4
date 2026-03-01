@@ -912,31 +912,17 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     floorPlanGroup.add(startMarker);
     startPulseRef.current = startMarker;
 
-    // ── Build destination marker (Floating Name Label in front of Door) ─────
+    // ── Build destination marker (In front of Door Gap) ──────────────────
     const destinationRoom = floorData.rooms.find(r => r.id === endRoomIdRef.current);
     const destinationName = destinationRoom?.name || "Destination";
-    
-    // Check if path ends at room center (from updated pathfinder)
-    const hasRoomCenter = segment.waypointIds[segment.waypointIds.length - 1] === endRoomIdRef.current;
-    
-    let lastWpPos: [number, number];
-    let roomCenterPos: [number, number] | null = null;
+    const lastWpPos = segment.positions[segment.positions.length - 1];
+    let doorPos = new THREE.Vector3(lastWpPos[0], 0.01, lastWpPos[1]);
 
-    if (hasRoomCenter && segment.positions.length >= 2) {
-        lastWpPos = segment.positions[segment.positions.length - 2];
-        roomCenterPos = segment.positions[segment.positions.length - 1];
-    } else {
-        lastWpPos = segment.positions[segment.positions.length - 1];
-        roomCenterPos = destinationRoom?.center || null;
-    }
-
-    let markerPos = new THREE.Vector3(lastWpPos[0], 0.01, lastWpPos[1]);
-
-    if (roomCenterPos) {
-      const roomVec = new THREE.Vector3(roomCenterPos[0], 0.01, roomCenterPos[1]);
-      const dirToRoom = new THREE.Vector3().subVectors(roomVec, markerPos).normalize();
-      // Move 0.55m from hallway waypoint towards room (places marker in the door gap)
-      markerPos.add(dirToRoom.multiplyScalar(0.55));
+    if (destinationRoom) {
+      const roomCenter = new THREE.Vector3(destinationRoom.center[0], 0.01, destinationRoom.center[1]);
+      const dirToRoom = new THREE.Vector3().subVectors(roomCenter, doorPos).normalize();
+      // Offset 0.55m from corridor waypoint towards room center to be in the door gap
+      doorPos.add(dirToRoom.multiplyScalar(0.55));
     }
 
     const destGroup = new THREE.Group();
@@ -966,7 +952,6 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const textPlane = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), textMat);
       textPlane.position.y = 1.2; // Float high
       destGroup.add(textPlane);
-      // Make text face user (handled in animate loop if needed, or static)
       textPlane.userData.isDestinationLabel = true;
     }
 
@@ -981,17 +966,16 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     ring.rotation.x = -Math.PI / 2;
     destGroup.add(ring);
 
-    destGroup.position.copy(markerPos);
+    destGroup.position.copy(doorPos);
     floorPlanGroup.add(destGroup);
     destinationBeaconRef.current = destGroup;
 
-    // ── Truncate path at door gap ───────────────────────────────────────────
-    if (hasRoomCenter && pathPoints.length >= 2) {
-        // Move the room center point to the door position
-        pathPoints[pathPoints.length - 1].set(markerPos.x, 0.12, markerPos.z);
-    } else if (floorData.floorId === endFloorIdRef.current && destinationRoom) {
-        // Fallback: append door if room center wasn't in path
-        pathPoints.push(new THREE.Vector3(markerPos.x, 0.12, markerPos.z));
+    // ── Build curve (Truncated at door gap) ─────────────────────────────────
+    const pathPoints = segment.positions.map(pos => new THREE.Vector3(pos[0], 0.12, pos[1]));
+    
+    // Extend/Snap the final point to the door gap if on the destination floor
+    if (floorData.floorId === endFloorIdRef.current && destinationRoom) {
+        pathPoints[pathPoints.length - 1].copy(doorPos).setY(0.12);
     }
 
     if (pathPoints.length < 2) return;
@@ -1018,7 +1002,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     const ARROW_SPACING = 20; 
     const isAR = rendererRef.current?.xr.isPresenting ?? false;
 
-    // Chevron (Reverse V) Shape
+    // Chevron Shape
     const chevronShape = new THREE.Shape();
     chevronShape.moveTo(-0.15, -0.10);
     chevronShape.lineTo(0, 0.08);
@@ -1062,8 +1046,9 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const lookAt = pt.clone().add(tangent);
       group.lookAt(lookAt);
 
-      // Orient the extruded shape to stand up as a ^ pointing forward
-      chevron.rotateX(-Math.PI / 2); // Align shape Y+ with group Z+
+      // Stand up and face forward (reversed 180 degrees as requested)
+      chevron.rotateX(-Math.PI / 2); 
+      chevron.rotateY(Math.PI);      
       
       group.add(chevron);
       group.userData.baseY = arrowY;
