@@ -894,13 +894,6 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
     if (!segment || segment.positions.length < 2) return;
 
-    const pathPoints = segment.positions.map(pos => {
-      // Y=0.12 — sits just above floor surface, visible in both 3D and AR
-      return new THREE.Vector3(pos[0], 0.12, pos[1]);
-    });
-
-    if (pathPoints.length < 2) return;
-
     // ── Build start marker (Attractive floating diamond) ──────────────────
     const startGeo = new THREE.OctahedronGeometry(0.25, 0);
     const startMat = new THREE.MeshStandardMaterial({ 
