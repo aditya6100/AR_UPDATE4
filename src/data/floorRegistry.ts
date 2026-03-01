@@ -18,11 +18,11 @@ export const floors: { id: string; number: number; label: string; marker?: { ima
     marker: { image: 'marker_f1.png', position: { x: 0.89, z: 3.65 } }
   },
   { 
-    id: 'f2', number: 2, label: '2nd Floor (CSE)',
+    id: 'f2', number: 2, label: '1st Floor',
     marker: { image: 'marker_f2.png', position: { x: 0.89, z: 3.65 } }
   },
   { 
-    id: 'f3', number: 3, label: '3rd Floor (Placeholder)',
+    id: 'f3', number: 3, label: '2nd Floor (CSE)',
     marker: { image: 'marker.png', position: { x: 2.0, z: 1.6 } }
   },
   { 
