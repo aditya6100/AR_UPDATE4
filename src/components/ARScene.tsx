@@ -1022,12 +1022,15 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const lookAt = pt.clone().add(tangent);
       group.lookAt(lookAt);
 
-      // Angle arms to form a "V" (actually a ">" pointing forward)
-      leftArm.rotation.z = Math.PI / 4;
+      // Angle arms to form a vertical "reverse V" (^) pointing forward
+      // We rotate them in the XY plane (vertical)
+      leftArm.rotation.z = -Math.PI / 4; // Tilt left
       leftArm.position.x = -0.08;
+      leftArm.position.y = -0.05; // Lower the base of the arm
       
-      rightArm.rotation.z = -Math.PI / 4;
+      rightArm.rotation.z = Math.PI / 4; // Tilt right
       rightArm.position.x = 0.08;
+      rightArm.position.y = -0.05; // Lower the base of the arm
 
       group.add(leftArm, rightArm);
       group.userData.baseY = currentHeight;
