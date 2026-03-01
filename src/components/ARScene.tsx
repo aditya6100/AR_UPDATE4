@@ -517,23 +517,24 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
           group.getWorldPosition(arrowPos);
           const dist = userPosArrows.distanceTo(arrowPos);
           
-          // Only show arrows within 10 meters
-          const isNearby = dist < 10;
+          // Appear within 8 meters, hide beyond that
+          const isNearby = dist < 8;
           group.visible = isNearby;
 
           if (isNearby) {
-            // Fade in/out
-            const opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0, (dist - 5) / 5), 0, 1);
+            // Fade in as user approaches (linear ramp from 8m to 2m)
+            const opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0, (dist - 2) / 6), 0, 1);
             mat.opacity = opacity;
+
+            // Grow from ground/air as user approaches
+            const scale = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0.1, (dist - 2) / 6), 0.1, 1);
+            group.scale.set(scale, scale, scale);
 
             const floatOffset = Math.sin(timeArrows * 2 + i * 0.4) * 0.04;
             if (group.userData.baseY !== undefined) group.position.y = group.userData.baseY + floatOffset;
             
             const pulse = 1.8 + Math.sin(timeArrows * 3 + i) * 0.7;
             mat.emissiveIntensity = pulse;
-            
-            // scale pulsing removed for consistent size
-            group.scale.set(1, 1, 1);
           }
         });
 
@@ -994,6 +995,9 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     const armR = 0.025;
     const currentHeight = isAR ? arrowHeight : 0.12; 
 
+    // Multi-color palette for arrows
+    const COLORS = [0xa78bfa, 0x3b82f6, 0x06b6d4, 0x10b981, 0xfacc15, 0xf97316, 0xef4444];
+
     const isToGround = activeSegment.transition?.toFloor === 'f1';
 
     for (let idx = 0; idx < curvePoints.length; idx += ARROW_SPACING) {
@@ -1002,10 +1006,12 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const t       = idx / (curvePoints.length - 1);
       const tangent = curve.getTangent(t).normalize();
 
+      const color = isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : COLORS[(idx / ARROW_SPACING) % COLORS.length];
+
       const geo = new THREE.CylinderGeometry(armR, armR, armL, 12);
       const mat = new THREE.MeshStandardMaterial({
-        color: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
-        emissive: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
+        color: color,
+        emissive: color,
         emissiveIntensity: 3.0,
         transparent: true,
         opacity: 0,
