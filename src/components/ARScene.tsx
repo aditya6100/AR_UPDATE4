@@ -894,6 +894,9 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
     if (!segment || segment.positions.length < 2) return;
 
+    // ── Build path points ───────────────────────────────────────────────────
+    const pathPoints = segment.positions.map(pos => new THREE.Vector3(pos[0], 0.12, pos[1]));
+
     // ── Build start marker (Attractive floating diamond) ──────────────────
     const startGeo = new THREE.OctahedronGeometry(0.25, 0);
     const startMat = new THREE.MeshStandardMaterial({ 
@@ -982,9 +985,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     floorPlanGroup.add(destGroup);
     destinationBeaconRef.current = destGroup;
 
-    // ── Build curve ─────────────────────────────────────────────────────────
-    const pathPoints = segment.positions.map(pos => new THREE.Vector3(pos[0], 0.12, pos[1]));
-    
+    // ── Truncate path at door gap ───────────────────────────────────────────
     if (hasRoomCenter && pathPoints.length >= 2) {
         // Move the room center point to the door position
         pathPoints[pathPoints.length - 1].set(markerPos.x, 0.12, markerPos.z);
