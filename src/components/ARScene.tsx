@@ -198,7 +198,10 @@ export default function ARScene({
       const getAbsUrl = (path: string) => baseUrl.endsWith('/') ? baseUrl + path : baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1) + path;
       for (const floor of floors) { if (floor.marker) { try { const img = new Image(); img.src = getAbsUrl(floor.marker.image); await img.decode(); const bitmap = await createImageBitmap(img); trackedImages.push({ image: bitmap, widthInMeters: 0.2 }); } catch (e) {} } }
       if (trackedImages.length > 0) sessionInit.trackedImages = trackedImages;
-      const arButton = ARButton.createButton(renderer, sessionInit); arButtonRef.current = arButton; container.appendChild(arButton);
+      const arButton = ARButton.createButton(renderer, sessionInit); 
+      arButton.style.zIndex = '100'; 
+      arButtonRef.current = arButton; 
+      container.appendChild(arButton);
     };
     setupARButton();
 
