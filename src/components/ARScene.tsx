@@ -8,12 +8,9 @@ import type { FloorData } from '../data/floorTypes';
 import type { PathSegment } from '../utils/multiFloorPathfinding';
 
 interface ArrowElement {
-  cone: THREE.Mesh;
-  shaft: THREE.Mesh;
-  coneGeo: THREE.ConeGeometry;
-  coneMat: THREE.MeshStandardMaterial;
-  shaftGeo: THREE.CylinderGeometry;
-  shaftMat: THREE.MeshStandardMaterial;
+  group: THREE.Group;
+  geo: THREE.CylinderGeometry;
+  mat: THREE.MeshStandardMaterial;
 }
 
 interface ARSceneProps {
@@ -131,8 +128,8 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     }
     // Clear path arrows
     spheresRef.current.forEach(e => {
-      floorPlanGroupRef.current!.remove(e.cone, e.shaft);
-      e.cone.geometry.dispose(); e.shaft.geometry.dispose();
+      floorPlanGroupRef.current!.remove(e.group);
+      e.geo.dispose();
     });
     spheresRef.current = [];
     animationIndexRef.current = 0;
@@ -341,8 +338,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
       // Ensure all arrows are visible
       spheresRef.current.forEach(arrow => {
-        arrow.cone.visible  = true;
-        arrow.shaft.visible = true;
+        arrow.group.visible = true;
       });
       if (lineRef.current) lineRef.current.visible = false;
     });
@@ -506,34 +502,29 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
         camera.getWorldPosition(userPosArrows);
 
         spheresRef.current.forEach((entry, i) => {
-          const { cone, shaft } = entry;
+          const { group, mat } = entry;
           
           const arrowPos = new THREE.Vector3();
-          cone.getWorldPosition(arrowPos);
+          group.getWorldPosition(arrowPos);
           const dist = userPosArrows.distanceTo(arrowPos);
           
           // Only show arrows within 10 meters
           const isNearby = dist < 10;
-          cone.visible = isNearby;
-          shaft.visible = isNearby;
+          group.visible = isNearby;
 
           if (isNearby) {
             // Fade in/out
             const opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0, (dist - 5) / 5), 0, 1);
-            (cone.material as THREE.MeshStandardMaterial).opacity = opacity;
-            (shaft.material as THREE.MeshStandardMaterial).opacity = opacity;
+            mat.opacity = opacity;
 
             const floatOffset = Math.sin(timeArrows * 2 + i * 0.4) * 0.04;
-            if (cone.userData.baseY !== undefined) cone.position.y = cone.userData.baseY + floatOffset;
-            if (shaft.userData.baseY !== undefined) shaft.position.y = shaft.userData.baseY + floatOffset;
+            if (group.userData.baseY !== undefined) group.position.y = group.userData.baseY + floatOffset;
             
             const pulse = 1.8 + Math.sin(timeArrows * 3 + i) * 0.7;
-            (cone.material as THREE.MeshStandardMaterial).emissiveIntensity = pulse;
-            (shaft.material as THREE.MeshStandardMaterial).emissiveIntensity = pulse;
+            mat.emissiveIntensity = pulse;
             
             // scale pulsing removed for consistent size
-            cone.scale.set(1, 1, 1);
-            shaft.scale.set(1, 1, 1);
+            group.scale.set(1, 1, 1);
           }
         });
 
@@ -562,7 +553,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
 
         // 8. ANIMATE GROUND FLOOR LABELS
         spheresRef.current.forEach((entry) => {
-          const label = entry.cone.children.find(c => c.userData.isFloorLabel);
+          const label = entry.group.children.find(c => c.userData.isFloorLabel);
           if (label) {
             label.lookAt(camera.position);
           }
@@ -856,9 +847,9 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
   const drawPath = (segment: PathSegment, floorPlanGroup: THREE.Group) => {
     // ── Clear old arrows, beacon and start pulse ──────────────────────────────
     spheresRef.current.forEach(entry => {
-      floorPlanGroup.remove(entry.cone, entry.shaft);
-      entry.coneGeo.dispose();  entry.shaftGeo.dispose();
-      entry.coneMat.dispose();  entry.shaftMat.dispose();
+      floorPlanGroup.remove(entry.group);
+      entry.geo.dispose();
+      entry.mat.dispose();
     });
     spheresRef.current = [];
 
@@ -989,13 +980,10 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     const ARROW_SPACING = 20; 
     const isAR = rendererRef.current?.xr.isPresenting ?? false;
 
-    // In AR we want real-world scale arrows (~20cm tall)
-    // We use a consistent size for both AR and 3D view for uniformity
-    const coneH  = 0.25;
-    const coneR  = 0.08;
-    const shaftL = 0.20;
-    const shaftR = 0.03;
-    const arrowY = isAR ? 0.30 : 0.12;  // Lowered to 30cm in AR
+    // Reverse V (Chevron) size
+    const armL = 0.25;
+    const armR = 0.025;
+    const arrowY = isAR ? 0.30 : 0.12; 
 
     const isToGround = activeSegment.transition?.toFloor === 'f1';
 
@@ -1005,25 +993,37 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const t       = idx / (curvePoints.length - 1);
       const tangent = curve.getTangent(t).normalize();
 
-      // ── CONE ARROW (Back to traditional arrows) ───────────────────────────
-      const coneGeo = new THREE.ConeGeometry(coneR, coneH, 16);
-      const coneMat = new THREE.MeshStandardMaterial({
-        color: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff, // Yellow if leads to GF
+      const geo = new THREE.CylinderGeometry(armR, armR, armL, 12);
+      const mat = new THREE.MeshStandardMaterial({
+        color: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
         emissive: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
         emissiveIntensity: 3.0,
-        roughness: 0.2,
-        metalness: 0.3,
         transparent: true,
         opacity: 0,
       });
-      const cone = new THREE.Mesh(coneGeo, coneMat);
-      cone.position.copy(pt).setY(arrowY + coneH / 2);
-      const lookAt = pt.clone().add(tangent);
-      cone.lookAt(lookAt.x, arrowY + coneH / 2, lookAt.z);
-      cone.rotateX(Math.PI / 2); // Point forward
-      cone.userData.baseY = cone.position.y;
 
-      // Add "Ground Floor" label if this arrow is near the transition
+      const leftArm = new THREE.Mesh(geo, mat);
+      const rightArm = new THREE.Mesh(geo, mat);
+
+      // Positioning chevrons
+      const group = new THREE.Group();
+      group.position.copy(pt);
+      
+      // Calculate rotation to face tangent
+      const lookAt = pt.clone().add(tangent);
+      group.lookAt(lookAt);
+
+      // Angle arms to form a "V" (actually a ">" pointing forward)
+      leftArm.rotation.z = Math.PI / 4;
+      leftArm.position.x = -0.08;
+      
+      rightArm.rotation.z = -Math.PI / 4;
+      rightArm.position.x = 0.08;
+
+      group.add(leftArm, rightArm);
+      group.userData.baseY = arrowY;
+      
+      // Ground label logic
       if (isToGround && idx > curvePoints.length - 60) {
         const canv = document.createElement('canvas');
         const c = canv.getContext('2d');
@@ -1037,27 +1037,12 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
           const tPlane = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), tMat);
           tPlane.position.y = 0.6;
           tPlane.userData.isFloorLabel = true;
-          cone.add(tPlane);
+          group.add(tPlane);
         }
       }
 
-      // ── Shaft ────────────────────────────────────────────────────────────
-      const shaftGeo = new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12);
-      const shaftMat = new THREE.MeshStandardMaterial({
-        color: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
-        emissive: isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : 0x00f2ff,
-        emissiveIntensity: 2.5,
-        transparent: true,
-        opacity: 0,
-      });
-      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
-      shaft.position.copy(pt).setY(arrowY + coneH / 2);
-      shaft.quaternion.copy(cone.quaternion);
-      shaft.translateY(-(coneH / 2 + shaftL / 2));
-      shaft.userData.baseY = shaft.position.y;
-
-      floorPlanGroup.add(cone, shaft);
-      spheresRef.current.push({ cone, shaft, coneGeo, coneMat, shaftGeo, shaftMat });
+      floorPlanGroup.add(group);
+      spheresRef.current.push({ group, geo, mat });
     }
   };
 
