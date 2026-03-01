@@ -195,6 +195,7 @@ export default function ARScene({
       if (labelsGroupRef.current) labelsGroupRef.current.visible = false;
       if (floorMessagesGroupRef.current) floorMessagesGroupRef.current.visible = false;
       if (corridorMeshRef.current) corridorMeshRef.current.visible = false;
+      if (destinationBeaconRef.current) destinationBeaconRef.current.visible = true;
       if (curSeg && floorPlanGroupRef.current) drawPath(curSeg, floorPlanGroupRef.current);
     });
 
@@ -294,7 +295,10 @@ export default function ARScene({
       }
       if (destinationBeaconRef.current) {
         const label = destinationBeaconRef.current.children.find(c => c.userData.isDestinationLabel);
-        if (label) { label.lookAt(camera.position); label.position.y = 1.2 + Math.sin(time*2.5)*0.1; }
+        if (label) { 
+          label.lookAt(camera.position); 
+          label.position.y = 1.5 + Math.sin(time*2.5)*0.1; 
+        }
       }
       renderer.render(scene, camera);
     };
@@ -385,10 +389,19 @@ export default function ARScene({
     const dGroup = new THREE.Group();
     const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
     if (ctx && dr) {
-      canvas.width = 512; canvas.height = 128; ctx.fillStyle = 'rgba(15,15,25,0.9)'; ctx.fillRect(0,0,512,128); ctx.strokeStyle = '#facc15'; ctx.lineWidth = 8; ctx.strokeRect(0,0,512,128);
-      ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = 'white'; ctx.fillText(dr.name, 256, 80);
-      const lbl = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-      lbl.position.y = 1.2; lbl.userData.isDestinationLabel = true; dGroup.add(lbl);
+      canvas.width = 512; canvas.height = 128;
+      ctx.fillStyle = 'rgba(15, 15, 25, 0.95)';
+      ctx.beginPath(); ctx.roundRect(0, 0, 512, 128, 20); ctx.fill();
+      ctx.strokeStyle = '#facc15'; ctx.lineWidth = 12; ctx.stroke();
+      ctx.font = 'bold 64px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'white'; ctx.fillText(dr.name, 256, 64);
+      const tex = new THREE.CanvasTexture(canvas); tex.needsUpdate = true;
+      const lbl = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.5, 0.6),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
+      );
+      lbl.position.y = 1.5; lbl.userData.isDestinationLabel = true;
+      dGroup.add(lbl);
     }
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.05, 16, 48), new THREE.MeshStandardMaterial({ color: 0xfacc15 }));
     ring.rotation.x = -Math.PI/2; dGroup.add(ring); dGroup.position.copy(doorPos); group.add(dGroup); destinationBeaconRef.current = dGroup;
