@@ -46,10 +46,20 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
   const floorRef = useRef<THREE.Mesh | null>(null);
   const startRoomRef  = useRef(startRoomId);
   const endRoomIdRef  = useRef(endRoomId);
+  const activeSegmentRef = useRef(activeSegment);
+  const pathSegmentsRef = useRef(pathSegments);
+  const isCalibratedRef = useRef(false);
+  const lastStateUpdateRef = useRef(0);
   
   const [isFarView, setIsFarView] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isCalibrated, setIsCalibrated] = useState(false);
+
+  // Sync refs with props/state
+  useEffect(() => { activeSegmentRef.current = activeSegment; }, [activeSegment]);
+  useEffect(() => { pathSegmentsRef.current = pathSegments; }, [pathSegments]);
+  useEffect(() => { isCalibratedRef.current = isCalibrated; }, [isCalibrated]);
+  useEffect(() => { endRoomIdRef.current = endRoomId; }, [endRoomId]);
   const [activeMarkerInfo, setActiveMarkerInfo] = useState<{ label: string; floorId: string } | null>(null);
   const [distanceToDest, setDistanceToDest] = useState<number | null>(null);
   const [totalDistanceRemaining, setTotalDistanceRemaining] = useState<number | null>(null);
@@ -435,41 +445,51 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
         }
 
         // 3. LIVE HUD & DISTANCE
-        if (isPresenting && isCalibrated && activeSegment && activeSegment.positions.length > 0) {
+        const calibrated = isCalibratedRef.current;
+        const curActiveSegment = activeSegmentRef.current;
+        const curPathSegments = pathSegmentsRef.current;
+
+        if (isPresenting && calibrated && curActiveSegment && curActiveSegment.positions.length > 0) {
           const userPos = new THREE.Vector3();
           camera.getWorldPosition(userPos);
-          const lastPoint = activeSegment.positions[activeSegment.positions.length - 1];
+          const lastPoint = curActiveSegment.positions[curActiveSegment.positions.length - 1];
           const destPos = new THREE.Vector3(lastPoint[0], 0, lastPoint[1]);
           if (floorPlanGroupRef.current) destPos.applyMatrix4(floorPlanGroupRef.current.matrixWorld);
           
           const distCurrent = userPos.distanceTo(destPos);
-          setDistanceToDest(distCurrent);
+          
+          // Throttle React state updates to ~10fps to prevent pegging the main thread
+          const now = performance.now();
+          if (now - lastStateUpdateRef.current > 100) {
+            setDistanceToDest(distCurrent);
 
-          let subseq = 0;
-          const idx = pathSegments.findIndex(s => s.floorId === floorData.floorId);
-          if (idx !== -1) {
-            for (let i = idx + 1; i < pathSegments.length; i++) {
-              const seg = pathSegments[i];
-              for (let j = 1; j < seg.positions.length; j++) {
-                subseq += Math.sqrt(Math.pow(seg.positions[j][0]-seg.positions[j-1][0],2) + Math.pow(seg.positions[j][1]-seg.positions[j-1][1],2));
+            let subseq = 0;
+            const idx = curPathSegments.findIndex(s => s.floorId === floorData.floorId);
+            if (idx !== -1) {
+              for (let i = idx + 1; i < curPathSegments.length; i++) {
+                const seg = curPathSegments[i];
+                for (let j = 1; j < seg.positions.length; j++) {
+                  subseq += Math.sqrt(Math.pow(seg.positions[j][0]-seg.positions[j-1][0],2) + Math.pow(seg.positions[j][1]-seg.positions[j-1][1],2));
+                }
+                subseq += 5;
               }
-              subseq += 5;
             }
-          }
-          setTotalDistanceRemaining(distCurrent + subseq);
+            setTotalDistanceRemaining(distCurrent + subseq);
 
-          if (idx === pathSegments.length - 1 && (distCurrent + subseq) < 1.5 && !hasArrived) {
-            if (navigator.vibrate) navigator.vibrate([500, 100, 500]);
-            setHasArrived(true);
-            setNextInstruction("You have arrived!");
-          } else if ((distCurrent + subseq) >= 1.5) {
-            setHasArrived(false);
-            setNextInstruction(activeSegment.transition ? `Take ${activeSegment.transition.name}` : `Follow arrows`);
+            if (idx === curPathSegments.length - 1 && (distCurrent + subseq) < 1.5 && !hasArrived) {
+              if (navigator.vibrate) navigator.vibrate([500, 100, 500]);
+              setHasArrived(true);
+              setNextInstruction("You have arrived!");
+            } else if ((distCurrent + subseq) >= 1.5) {
+              setHasArrived(false);
+              setNextInstruction(curActiveSegment.transition ? `Take ${curActiveSegment.transition.name}` : `Follow arrows`);
+            }
+            lastStateUpdateRef.current = now;
           }
         }
 
         // 4. NEARBY LABELS
-        if (labelsGroupRef.current && isPresenting && isCalibrated) {
+        if (labelsGroupRef.current && isPresenting && calibrated) {
           const userPos = new THREE.Vector3();
           camera.getWorldPosition(userPos);
           labelsGroupRef.current.children.forEach(label => {
@@ -1018,7 +1038,7 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
     // Multi-color palette for arrows
     const COLORS = [0xa78bfa, 0x3b82f6, 0x06b6d4, 0x10b981, 0xfacc15, 0xf97316, 0xef4444];
 
-    const isToGround = activeSegment.transition?.toFloor === 'f1';
+    const isToGround = segment.transition?.toFloor === 'f1';
 
     for (let idx = 0; idx < curvePoints.length; idx += ARROW_SPACING) {
       const pt      = curvePoints[idx].clone();
@@ -1026,7 +1046,8 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const t       = idx / (curvePoints.length - 1);
       const tangent = curve.getTangent(t).normalize();
 
-      const color = isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : COLORS[(idx / ARROW_SPACING) % COLORS.length];
+      const colorIdx = Math.floor(idx / ARROW_SPACING);
+      const color = isToGround && idx > curvePoints.length - 60 ? 0xfacc15 : COLORS[colorIdx % COLORS.length];
 
       const mat = new THREE.MeshStandardMaterial({
         color: color,
