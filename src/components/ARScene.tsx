@@ -25,14 +25,8 @@ interface ARSceneProps {
 }
 
 export default function ARScene({ 
-  floorData, 
-  activeSegment, 
-  pathSegments, 
-  startRoomId, 
-  endRoomId, 
-  onSessionStateChange, 
-  showARButton, 
-  showUIView 
+  floorData, activeSegment, pathSegments, startRoomId, endRoomId, 
+  onSessionStateChange, showARButton, showUIView 
 }: ARSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -44,19 +38,18 @@ export default function ARScene({
   const startPulseRef = useRef<THREE.Mesh | null>(null);
   const destinationBeaconRef = useRef<THREE.Group | null>(null);
   const lineRef = useRef<THREE.Line | null>(null);
-  const animationIndexRef = useRef(0);
-  const curvePointsGlobalRef = useRef<THREE.Vector3[]>([]);
-  const pathCurveRef = useRef<THREE.CatmullRomCurve3 | null>(null);
   const arButtonRef = useRef<HTMLElement | null>(null);
   const wallGroupRef = useRef<THREE.Group | null>(null);
   const floorRef = useRef<THREE.Mesh | null>(null);
+  const labelsGroupRef = useRef<THREE.Group | null>(null);
+  const floorMessagesGroupRef = useRef<THREE.Group | null>(null);
   
-  // Refs for values used in the animation loop to avoid stale closures and crashes
   const endRoomIdRef = useRef(endRoomId);
   const activeSegmentRef = useRef(activeSegment);
   const pathSegmentsRef = useRef(pathSegments);
   const isCalibratedRef = useRef(false);
   const lastStateUpdateRef = useRef(0);
+  const isScanningRef = useRef(false);
   
   const [isFarView, setIsFarView] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -68,13 +61,12 @@ export default function ARScene({
   const [hasArrived, setHasArrived] = useState(false);
   const [arrowHeight, setArrowHeight] = useState(0.3);
 
-  // Sync refs with props
   useEffect(() => { activeSegmentRef.current = activeSegment; }, [activeSegment]);
   useEffect(() => { pathSegmentsRef.current = pathSegments; }, [pathSegments]);
   useEffect(() => { isCalibratedRef.current = isCalibrated; }, [isCalibrated]);
   useEffect(() => { endRoomIdRef.current = endRoomId; }, [endRoomId]);
+  useEffect(() => { isScanningRef.current = isScanning; }, [isScanning]);
 
-  // Update existing arrows when height changes
   useEffect(() => {
     spheresRef.current.forEach(arrow => {
       if (arrow.group) {
@@ -90,133 +82,149 @@ export default function ARScene({
       const cam = cameraRef.current;
       const currentFloorMarker = floors.find(f => f.id === floorData.floorId)?.marker;
       if (!currentFloorMarker) return;
-
       group.position.set(cam.position.x, 0, cam.position.z);
       group.rotation.set(0, cam.rotation.y, 0);
       group.translateX(-currentFloorMarker.position.x);
       group.translateZ(-currentFloorMarker.position.z);
-      
       setActiveMarkerInfo({ label: floorData.floorName, floorId: floorData.floorId });
-      setIsCalibrated(true);
-      setIsScanning(false);
+      setIsCalibrated(true); setIsScanning(false);
       if (navigator.vibrate) navigator.vibrate(200);
     }
   };
 
   useEffect(() => {
     if (cameraRef.current && controlsRef.current) {
-      const targetY = isFarView ? 70 : 38;
-      cameraRef.current.position.y = targetY;
+      cameraRef.current.position.y = isFarView ? 70 : 38;
       controlsRef.current.update();
     }
   }, [isFarView]);
 
-  // Handle floor and path data changes
   useEffect(() => {
     if (!floorPlanGroupRef.current) return;
-
-    // --- Cleanup Phase ---
     const group = floorPlanGroupRef.current;
     
-    if (wallGroupRef.current) {
-      group.remove(wallGroupRef.current);
-      wallGroupRef.current.traverse(child => {
-        if ((child as THREE.Mesh).isMesh) {
-          (child as THREE.Mesh).geometry.dispose();
-          const m = (child as THREE.Mesh).material;
-          if (Array.isArray(m)) m.forEach(x => x.dispose()); else m.dispose();
-        }
-      });
-      wallGroupRef.current = null;
-    }
-
+    // Clear old elements
+    if (wallGroupRef.current) group.remove(wallGroupRef.current);
+    if (labelsGroupRef.current) group.remove(labelsGroupRef.current);
+    if (floorMessagesGroupRef.current) group.remove(floorMessagesGroupRef.current);
+    if (floorRef.current) group.remove(floorRef.current);
+    
     if (spheresRef.current.length > 0) {
-      const first = spheresRef.current[0];
-      if (first.geo) first.geo.dispose();
-      spheresRef.current.forEach(e => {
-        group.remove(e.group);
-        if (e.mat) e.mat.dispose();
-      });
+      spheresRef.current[0].geo.dispose();
+      spheresRef.current.forEach(e => { group.remove(e.group); if (e.mat) e.mat.dispose(); });
       spheresRef.current = [];
     }
 
-    if (floorRef.current) {
-      group.remove(floorRef.current);
-      floorRef.current.geometry.dispose();
-      if (floorRef.current.material) (floorRef.current.material as THREE.Material).dispose();
-      floorRef.current = null;
-    }
+    const { wallGroup } = createWalls(floorData);
+    group.add(wallGroup); wallGroupRef.current = wallGroup;
 
-    // --- Rebuild Phase ---
-    try {
-      const { wallGroup } = createWalls(floorData);
-      group.add(wallGroup);
-      wallGroupRef.current = wallGroup;
+    const labelsGroup = new THREE.Group(); labelsGroupRef.current = labelsGroup; group.add(labelsGroup);
+    drawRoomLabels(labelsGroup);
 
-      drawFloor(group, wallGroup);
+    const msgsGroup = new THREE.Group(); floorMessagesGroupRef.current = msgsGroup; group.add(msgsGroup);
+    drawFloorMessages(msgsGroup);
 
-      if (activeSegment) {
-        drawPath(activeSegment, group);
-      }
-    } catch (err) {
-      console.error("Error rebuilding scene:", err);
-    }
+    drawFloor(group, wallGroup);
+    if (activeSegment) drawPath(activeSegment, group);
   }, [floorData, activeSegment]);
 
   useEffect(() => {
-    const currentContainer = containerRef.current;
-    if (!currentContainer) return;
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0f);
-    sceneRef.current = scene;
-
-    const floorPlanGroup = new THREE.Group();
-    floorPlanGroupRef.current = floorPlanGroup;
-    scene.add(floorPlanGroup);
-
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 40, 0);
-    cameraRef.current = camera;
-
+    const container = containerRef.current; if (!container) return;
+    const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a0a0f); sceneRef.current = scene;
+    const floorPlanGroup = new THREE.Group(); floorPlanGroupRef.current = floorPlanGroup; scene.add(floorPlanGroup);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 40, 0); cameraRef.current = camera;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.xr.enabled = true;
-    currentContainer.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controlsRef.current = controls;
-
+    renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.xr.enabled = true; container.appendChild(renderer.domElement); rendererRef.current = renderer;
+    const controls = new OrbitControls(camera, renderer.domElement); controlsRef.current = controls;
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const dl = new THREE.DirectionalLight(0xffffff, 1);
-    dl.position.set(10, 20, 10);
-    scene.add(dl);
+    const dl = new THREE.DirectionalLight(0xffffff, 1); dl.position.set(10, 20, 10); scene.add(dl);
+
+    const setupARButton = async () => {
+      const sessionInit: any = { requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'dom-overlay-for-handheld-ar', 'image-tracking'], domOverlay: { root: document.body } };
+      const trackedImages: any[] = [];
+      const baseUrl = window.location.href.split('?')[0].split('#')[0];
+      const getAbsUrl = (path: string) => baseUrl.endsWith('/') ? baseUrl + path : baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1) + path;
+      for (const floor of floors) { if (floor.marker) { try { const img = new Image(); img.src = getAbsUrl(floor.marker.image); await img.decode(); const bitmap = await createImageBitmap(img); trackedImages.push({ image: bitmap, widthInMeters: 0.2 }); } catch (e) {} } }
+      if (trackedImages.length > 0) sessionInit.trackedImages = trackedImages;
+      const arButton = ARButton.createButton(renderer, sessionInit); arButtonRef.current = arButton; container.appendChild(arButton);
+    };
+    setupARButton();
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      if (onSessionStateChange) onSessionStateChange(true);
+      setIsScanning(true); setIsCalibrated(false);
+      const group = floorPlanGroupRef.current; if (!group) return;
+      group.scale.set(1, 1, 1);
+      const curSeg = activeSegmentRef.current;
+      if (curSeg && curSeg.positions.length >= 2) {
+        const p1 = curSeg.positions[0], p2 = curSeg.positions[1];
+        const angle = Math.atan2(p2[0]-p1[0], p2[1]-p1[1]);
+        group.rotation.set(0, -angle, 0);
+        const p1Vec = new THREE.Vector3(p1[0], 0, p1[1]).applyAxisAngle(new THREE.Vector3(0,1,0), group.rotation.y);
+        group.position.set(-p1Vec.x, 0, -p1Vec.z);
+      }
+      if (floorRef.current) floorRef.current.visible = false;
+      if (wallGroupRef.current) wallGroupRef.current.visible = false;
+      if (labelsGroupRef.current) labelsGroupRef.current.visible = false;
+      if (floorMessagesGroupRef.current) floorMessagesGroupRef.current.visible = false;
+      if (curSeg && floorPlanGroupRef.current) drawPath(curSeg, floorPlanGroupRef.current);
+    });
+
+    renderer.xr.addEventListener('sessionend', () => {
+      if (onSessionStateChange) onSessionStateChange(false);
+      const group = floorPlanGroupRef.current; if (!group) return;
+      group.scale.set(1, 1, 1); group.position.set(0, 0, 0); group.rotation.set(0, 0, 0);
+      if (floorRef.current) floorRef.current.visible = true;
+      if (wallGroupRef.current) wallGroupRef.current.visible = true;
+      if (labelsGroupRef.current) labelsGroupRef.current.visible = true;
+      if (floorMessagesGroupRef.current) floorMessagesGroupRef.current.visible = true;
+      const curSeg = activeSegmentRef.current; if (curSeg && group) drawPath(curSeg, group);
+    });
 
     const animate = () => {
       const isPresenting = renderer.xr.isPresenting;
       scene.background = isPresenting ? null : new THREE.Color(0x0a0a0f);
       controls.update();
+      const session = renderer.xr.getSession(), frame = renderer.xr.getFrame();
+      if (session && frame && isScanningRef.current && !isCalibratedRef.current && floorPlanGroupRef.current) {
+        try {
+          const results = (frame as any).getImageTrackingResults?.() || [];
+          for (const result of results) {
+            if (result.trackingState === 'tracked' || result.trackingState === 'emulated') {
+              const floorFound = floors.filter(f => f.marker)[result.index];
+              if (floorFound && floorFound.marker) {
+                const refSpace = renderer.xr.getReferenceSpace();
+                if (refSpace) {
+                  const pose = frame.getPose(result.imageSpace, refSpace);
+                  if (pose) {
+                    const { position, orientation } = pose.transform;
+                    const group = floorPlanGroupRef.current;
+                    group.position.set(position.x, position.y, position.z);
+                    group.quaternion.set(orientation.x, orientation.y, orientation.z, orientation.w);
+                    group.translateX(-floorFound.marker.position.x); group.translateZ(-floorFound.marker.position.z);
+                    setActiveMarkerInfo({ label: floorFound.label, floorId: floorFound.id });
+                    setIsCalibrated(true); setIsScanning(false);
+                    if (navigator.vibrate) navigator.vibrate(200);
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      }
 
-      const calibrated = isCalibratedRef.current;
-      const curActiveSegment = activeSegmentRef.current;
-      const curPathSegments = pathSegmentsRef.current;
-
-      // Real-time HUD and proximity updates
+      const calibrated = isCalibratedRef.current, curActiveSegment = activeSegmentRef.current, curPathSegments = pathSegmentsRef.current;
       if (isPresenting && calibrated && curActiveSegment && curActiveSegment.positions.length > 0) {
-        const userPos = new THREE.Vector3();
-        camera.getWorldPosition(userPos);
+        const userPos = new THREE.Vector3(); camera.getWorldPosition(userPos);
         const lastPt = curActiveSegment.positions[curActiveSegment.positions.length - 1];
         const destPos = new THREE.Vector3(lastPt[0], 0, lastPt[1]);
         if (floorPlanGroupRef.current) destPos.applyMatrix4(floorPlanGroupRef.current.matrixWorld);
-        
         const distCurrent = userPos.distanceTo(destPos);
         const now = performance.now();
-
         if (now - lastStateUpdateRef.current > 100) {
           setDistanceToDest(distCurrent);
-          
           let subseq = 0;
           const fIdx = curPathSegments.findIndex(s => s.floorId === floorData.floorId);
           if (fIdx !== -1) {
@@ -225,67 +233,50 @@ export default function ARScene({
               if (seg.positions) {
                 for (let j = 1; j < seg.positions.length; j++) {
                   const p1 = seg.positions[j-1], p2 = seg.positions[j];
-                  if (p1 && p2) subseq += Math.sqrt(Math.pow(p2[0]-p1[0],2)+Math.pow(p2[1]-p1[1],2));
+                  subseq += Math.sqrt(Math.pow(p2[0]-p1[0],2)+Math.pow(p2[1]-p1[1],2));
                 }
               }
-              subseq += 5; // Transition penalty
+              subseq += 5;
             }
           }
           setTotalDistanceRemaining(distCurrent + subseq);
-          
-          if (fIdx === curPathSegments.length - 1 && (distCurrent + subseq) < 1.5 && !hasArrived) {
-            setHasArrived(true); setNextInstruction("You have arrived!");
-          } else if ((distCurrent + subseq) >= 1.5) {
-            setHasArrived(false);
-            setNextInstruction(curActiveSegment.transition ? `Take ${curActiveSegment.transition.name}` : `Follow arrows`);
-          }
+          if (fIdx === curPathSegments.length - 1 && (distCurrent + subseq) < 1.5 && !hasArrived) { setHasArrived(true); setNextInstruction("You have arrived!"); }
+          else if ((distCurrent + subseq) >= 1.5) { setHasArrived(false); setNextInstruction(curActiveSegment.transition ? `Take ${curActiveSegment.transition.name}` : `Follow arrows`); }
           lastStateUpdateRef.current = now;
         }
       }
 
-      // Animate arrows
       const time = performance.now() * 0.001;
-      const uPos = new THREE.Vector3();
-      camera.getWorldPosition(uPos);
-
+      const uPos = new THREE.Vector3(); camera.getWorldPosition(uPos);
       spheresRef.current.forEach((entry, i) => {
-        const { group, mat } = entry;
-        const aPos = new THREE.Vector3();
-        group.getWorldPosition(aPos);
-        const d = uPos.distanceTo(aPos);
-        const isNear = d < 8;
+        const { group, mat } = entry; const aPos = new THREE.Vector3(); group.getWorldPosition(aPos);
+        const d = uPos.distanceTo(aPos); 
+        const isNear = d < 15; // Increased range to 15m
         group.visible = isNear;
         if (isNear) {
-          mat.opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0, (d-2)/6), 0, 1);
-          const s = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0.1, (d-2)/6), 0.1, 1);
-          group.scale.setScalar(s);
+          mat.opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0, (d-10)/5), 0, 1);
+          group.scale.setScalar(THREE.MathUtils.clamp(THREE.MathUtils.lerp(1, 0.1, (d-10)/5), 0.1, 1));
           if (group.userData.baseY !== undefined) group.position.y = group.userData.baseY + Math.sin(time*2 + i*0.4)*0.04;
-          mat.emissiveIntensity = 1.8 + Math.sin(time*3 + i)*0.7;
+          mat.emissiveIntensity = 2.5 + Math.sin(time*3 + i)*1.0;
         }
       });
 
       if (startPulseRef.current) {
         startPulseRef.current.rotation.y += 0.02;
         startPulseRef.current.position.y = 0.6 + Math.sin(time*3)*0.05;
+        (startPulseRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity = 2 + Math.sin(time*4)*1;
       }
       if (destinationBeaconRef.current) {
         const label = destinationBeaconRef.current.children.find(c => c.userData.isDestinationLabel);
-        if (label) {
-          label.lookAt(camera.position);
-          label.position.y = 1.2 + Math.sin(time*2.5)*0.1;
-        }
+        if (label) { label.lookAt(camera.position); label.position.y = 1.2 + Math.sin(time*2.5)*0.1; }
       }
-
       renderer.render(scene, camera);
     };
-
     renderer.setAnimationLoop(animate);
 
     return () => {
-      renderer.setAnimationLoop(null);
-      renderer.dispose();
-      controls.dispose();
-      if (currentContainer && renderer.domElement) currentContainer.removeChild(renderer.domElement);
+      renderer.setAnimationLoop(null); renderer.dispose(); controls.dispose();
+      if (container && renderer.domElement) container.removeChild(renderer.domElement);
     };
   }, []);
 
@@ -293,102 +284,84 @@ export default function ARScene({
     const box = new THREE.Box3().setFromObject(walls);
     const size = new THREE.Vector3(), center = new THREE.Vector3();
     box.getSize(size); box.getCenter(center);
-    
     const floorGeo = new THREE.PlaneGeometry(size.x + 10, size.z + 10);
     const floorMat = new THREE.MeshStandardMaterial({ color: 0x08080a });
     const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(center.x, 0, center.z);
-    group.add(floor);
-    floorRef.current = floor;
-
+    floor.rotation.x = -Math.PI / 2; floor.position.set(center.x, 0, center.z);
+    group.add(floor); floorRef.current = floor;
     if (cameraRef.current && controlsRef.current) {
       cameraRef.current.position.set(center.x, isFarView ? 70 : 38, center.z + 0.1);
-      controlsRef.current.target.copy(center);
-      controlsRef.current.update();
+      controlsRef.current.target.copy(center); controlsRef.current.update();
     }
   };
 
-  const drawPath = (segment: PathSegment | null, group: THREE.Group) => {
-    // 1. Cleanup old path
-    if (spheresRef.current.length > 0) {
-      spheresRef.current[0].geo.dispose();
-      spheresRef.current.forEach(e => { group.remove(e.group); if (e.mat) e.mat.dispose(); });
-      spheresRef.current = [];
-    }
-    if (startPulseRef.current) { group.remove(startPulseRef.current); startPulseRef.current.geometry.dispose(); (startPulseRef.current.material as THREE.Material).dispose(); startPulseRef.current = null; }
-    if (destinationBeaconRef.current) { group.remove(destinationBeaconRef.current); destinationBeaconRef.current = null; }
+  const drawRoomLabels = (group: THREE.Group) => {
+    floorData.rooms.forEach(room => {
+      if (!room.center) return;
+      const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d'); if (!ctx) return;
+      canvas.width = 512; canvas.height = 512;
+      ctx.fillStyle = 'rgba(8,8,18,0.8)'; ctx.fillRect(0,0,512,512);
+      ctx.strokeStyle = '#c792ea'; ctx.lineWidth = 10; ctx.strokeRect(0,0,512,512);
+      ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = 'white';
+      ctx.fillText(room.name, 256, 256);
+      const tex = new THREE.CanvasTexture(canvas);
+      const label = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
+      label.position.set(room.center[0], 0.05, room.center[1]); label.rotation.x = -Math.PI/2;
+      group.add(label);
+    });
+  };
 
+  const drawFloorMessages = (group: THREE.Group) => {
+    if (!floorData.floorMessages) return;
+    floorData.floorMessages.forEach(m => {
+      const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d'); if (!ctx) return;
+      canvas.width = 1024; canvas.height = 256;
+      ctx.fillStyle = 'rgba(15,15,25,0.7)'; ctx.fillRect(0,0,1024,256);
+      ctx.strokeStyle = '#8b5cf6'; ctx.lineWidth = 10; ctx.strokeRect(0,0,1024,256);
+      ctx.font = 'bold 80px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = 'white';
+      ctx.fillText(m.text, 512, 128);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(4, 1), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, opacity: 0.9 }));
+      mesh.position.set(m.position[0], 0.02, m.position[1]); mesh.rotation.x = -Math.PI/2;
+      group.add(mesh);
+    });
+  };
+
+  const drawPath = (segment: PathSegment | null, group: THREE.Group) => {
+    if (spheresRef.current.length > 0) { spheresRef.current[0].geo.dispose(); spheresRef.current.forEach(e => { group.remove(e.group); if (e.mat) e.mat.dispose(); }); spheresRef.current = []; }
+    if (startPulseRef.current) { group.remove(startPulseRef.current); startPulseRef.current.geometry.dispose(); (startPulseRef.current.material as any).dispose(); startPulseRef.current = null; }
+    if (destinationBeaconRef.current) { group.remove(destinationBeaconRef.current); destinationBeaconRef.current = null; }
     if (!segment || !segment.positions || segment.positions.length < 2) return;
 
-    // 2. Build points
     const pts = segment.positions.map(p => new THREE.Vector3(p[0], 0.12, p[1]));
-    
-    // Position destination marker at door gap
-    const destRoom = endRoomIdRef.current ? floorData.rooms.find(r => r.id === endRoomIdRef.current) : null;
+    const dr = endRoomIdRef.current ? floorData.rooms.find(r => r.id === endRoomIdRef.current) : null;
     let doorPos = pts[pts.length - 1].clone();
-    if (destRoom) {
-      const roomCenter = new THREE.Vector3(destRoom.center[0], 0.12, destRoom.center[1]);
-      const dir = new THREE.Vector3().subVectors(roomCenter, doorPos).normalize();
-      doorPos.add(dir.multiplyScalar(0.55));
-      pts[pts.length - 1].copy(doorPos);
-    }
+    if (dr) { const rc = new THREE.Vector3(dr.center[0], 0.12, dr.center[1]); doorPos.add(new THREE.Vector3().subVectors(rc, doorPos).normalize().multiplyScalar(0.55)); pts[pts.length-1].copy(doorPos); }
 
-    // 3. Start Marker
-    const sGeo = new THREE.OctahedronGeometry(0.25, 0);
-    const sMat = new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 2 });
-    const sMarker = new THREE.Mesh(sGeo, sMat);
-    sMarker.position.copy(pts[0]).setY(0.6);
-    group.add(sMarker);
-    startPulseRef.current = sMarker;
+    const sMarker = new THREE.Mesh(new THREE.OctahedronGeometry(0.25, 0), new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 2 }));
+    sMarker.position.copy(pts[0]).setY(0.6); group.add(sMarker); startPulseRef.current = sMarker;
 
-    // 4. Destination Marker
     const dGroup = new THREE.Group();
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (ctx && destRoom) {
-      canvas.width = 512; canvas.height = 128;
-      ctx.fillStyle = 'rgba(15,15,25,0.9)'; ctx.fillRect(0,0,512,128);
-      ctx.strokeStyle = '#facc15'; ctx.lineWidth = 8; ctx.strokeRect(0,0,512,128);
-      ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = 'white';
-      ctx.fillText(destRoom.name, 256, 80);
-      const tex = new THREE.CanvasTexture(canvas);
-      const label = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
-      label.position.y = 1.2; label.userData.isDestinationLabel = true;
-      dGroup.add(label);
+    const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+    if (ctx && dr) {
+      canvas.width = 512; canvas.height = 128; ctx.fillStyle = 'rgba(15,15,25,0.9)'; ctx.fillRect(0,0,512,128); ctx.strokeStyle = '#facc15'; ctx.lineWidth = 8; ctx.strokeRect(0,0,512,128);
+      ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = 'white'; ctx.fillText(dr.name, 256, 80);
+      const lbl = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+      lbl.position.y = 1.2; lbl.userData.isDestinationLabel = true; dGroup.add(lbl);
     }
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.05, 16, 48), new THREE.MeshStandardMaterial({ color: 0xfacc15 }));
-    ring.rotation.x = -Math.PI / 2; dGroup.add(ring);
-    dGroup.position.copy(doorPos);
-    group.add(dGroup);
-    destinationBeaconRef.current = dGroup;
+    ring.rotation.x = -Math.PI/2; dGroup.add(ring); dGroup.position.copy(doorPos); group.add(dGroup); destinationBeaconRef.current = dGroup;
 
-    // 5. Arrows
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const curvePts = curve.getPoints(300);
-    const cShape = new THREE.Shape();
-    cShape.moveTo(-0.15,-0.05); cShape.lineTo(0,0.15); cShape.lineTo(0.15,-0.05);
-    cShape.lineTo(0.15,0.05); cShape.lineTo(0,0.25); cShape.lineTo(-0.15,0.05); cShape.closePath();
+    const curve = new THREE.CatmullRomCurve3(pts); const curvePts = curve.getPoints(300);
+    const cShape = new THREE.Shape(); cShape.moveTo(-0.15,-0.05); cShape.lineTo(0,0.15); cShape.lineTo(0.15,-0.05); cShape.lineTo(0.15,0.05); cShape.lineTo(0,0.25); cShape.lineTo(-0.15,0.05); cShape.closePath();
     const cGeo = new THREE.ExtrudeGeometry(cShape, { depth: 0.04, bevelEnabled: false });
     const colors = [0xa78bfa, 0x3b82f6, 0x06b6d4, 0x10b981, 0xfacc15, 0xf97316, 0xef4444];
-    const isToGround = segment.transition?.toFloor === 'f1';
-
     for (let i = 0; i < curvePts.length; i += 20) {
-      const p = curvePts[i];
-      const tangent = curve.getTangent(i/(curvePts.length-1)).normalize();
-      const col = (isToGround && i > curvePts.length-60) ? 0xfacc15 : colors[Math.floor(i/20)%colors.length];
+      const p = curvePts[i]; const tan = curve.getTangent(i/(curvePts.length-1)).normalize();
+      const col = colors[Math.floor(i/20)%colors.length];
       const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 3, transparent: true, opacity: 0 });
-      const mesh = new THREE.Mesh(cGeo, mat);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.rotation.y = Math.PI; // Flip 180 degrees
-      
-      const g = new THREE.Group();
-      g.position.copy(p).setY(arrowHeight);
-      g.lookAt(p.clone().add(tangent));
-      g.add(mesh);
-      g.userData.baseY = arrowHeight;
-      group.add(g);
-      spheresRef.current.push({ group: g, geo: cGeo, mat });
+      const mesh = new THREE.Mesh(cGeo, mat); mesh.rotation.x = -Math.PI / 2; mesh.rotation.y = Math.PI;
+      const g = new THREE.Group(); g.position.copy(p).setY(arrowHeight); g.lookAt(p.clone().add(tan)); g.add(mesh); g.userData.baseY = arrowHeight;
+      group.add(g); spheresRef.current.push({ group: g, geo: cGeo, mat });
     }
   };
 
