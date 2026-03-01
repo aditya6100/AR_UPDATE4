@@ -1065,8 +1065,9 @@ export default function ARScene({ floorData, activeSegment, pathSegments, startR
       const lookAt = pt.clone().add(tangent);
       group.lookAt(lookAt);
 
-      // Stand up and face forward along the path
+      // Stand up and face forward along the path (reversed 180deg for correct alignment)
       chevron.rotateX(-Math.PI / 2); 
+      chevron.rotateY(Math.PI);
       
       group.add(chevron);
       group.userData.baseY = arrowY;
