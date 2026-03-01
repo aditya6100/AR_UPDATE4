@@ -7,8 +7,9 @@ import { findMultiFloorPath } from './utils/multiFloorPathfinding';
 import type { PathSegment } from './utils/multiFloorPathfinding';
 
 function App() {
-  // Default: start on floor 3 (CSE — your real floor)
-  const defaultFloor = 'f3';
+  console.log("AR System Version 1.0.2 - CSE Update");
+  // Default: start on floor 2 (CSE — your real floor)
+  const defaultFloor = 'f2';
   const defaultStart = ALL_FLOORS.find(f => f.floorId === defaultFloor)?.rooms.find(r => !r.id.endsWith('_corridor'))?.id ?? '';
   const defaultEnd   = ALL_FLOORS.find(f => f.floorId === defaultFloor)?.rooms.filter(r => !r.id.endsWith('_corridor'))[1]?.id ?? '';
 
